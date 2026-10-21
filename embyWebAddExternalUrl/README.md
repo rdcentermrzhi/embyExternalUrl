@@ -71,6 +71,21 @@ Emby Web, iconOnly: true
 
 ### CHANGELOG
 
+#### 1.1.25
+1. feat(embyLaunchPotplayer): 额外部分的外部播放放进卡片右键菜单，不再单独占一颗按钮
+
+#### 1.1.24
+1. fix(embyLaunchPotplayer): 额外部分的外部播放按卡片居中，放在对应卡片正下方
+
+#### 1.1.23
+1. fix(embyLaunchPotplayer): 额外部分的外部播放移出横向滚动区，避免下半截被裁切
+
+#### 1.1.22
+1. fix(embyLaunchPotplayer): 额外部分的外部播放改到标题下方，避开封面上的播放按钮和多选框
+
+#### 1.1.21
+1. feat(embyLaunchPotplayer): 详情页「额外部分」卡片可调用外部播放器，按该段自己的媒体源生成地址
+
 #### 1.1.20
 1. fix(embyLaunchPotplayer): 适配 4.9.0.40
 2. refactor(embyLaunchPotplayer): 抽取 selectors

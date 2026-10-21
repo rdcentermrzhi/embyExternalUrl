@@ -4,7 +4,7 @@
 // @name:zh      embyLaunchPotplayer
 // @name:zh-CN   embyLaunchPotplayer
 // @namespace    http://tampermonkey.net/
-// @version      1.1.20
+// @version      1.1.25
 // @description  emby/jellfin launch extetnal player
 // @description:zh-cn emby/jellfin 调用外部播放器
 // @description:en  emby/jellfin to external player
@@ -34,6 +34,10 @@
     const useRealFileName = false;
     // 以下为内部使用变量,请勿更改
     let isEmby = "";
+    // 非空时，外部播放使用额外部分自己的条目，而不是详情页主视频
+    let playbackItemId = null;
+    let partCommandRegistered = false;
+    const additionalPartIds = new Set();
     const mark = "embyLaunchPotplayer";
     const playBtnsWrapperId = "ExternalPlayersBtns";
     const lsKeys = {
@@ -227,8 +231,26 @@
         return !!mediaInfoDiv || !!btnManualRecording;
     }
 
+    async function getItemWithSources(userId, itemId) {
+        let item = await ApiClient.getItem(userId, itemId);
+        if (item.MediaSources && item.MediaSources.length > 0) {
+            return item;
+        }
+        if (typeof ApiClient.getUrl === "function" && typeof ApiClient.getJSON === "function") {
+            const url = ApiClient.getUrl(`Users/${userId}/Items/${itemId}`, {
+                Fields: "MediaSources,MediaStreams,Path,UserData",
+            });
+            item = await ApiClient.getJSON(url);
+        }
+        return item;
+    }
+
     async function getItemInfo() {
         let userId = ApiClient._serverInfo.UserId;
+        if (playbackItemId) {
+            console.log("additionalPartItemId: " + playbackItemId);
+            return await getItemWithSources(userId, playbackItemId);
+        }
         let itemId = /\?id=([A-Za-z0-9]+)/.exec(window.location.hash)[1];
         let response = await ApiClient.getItem(userId, itemId);
         // 继续播放当前剧集的下一集
@@ -272,27 +294,29 @@
     }
 
     function getSubPath(mediaSource) {
-        let selectSubtitles = document.querySelector(selectors.selectSubtitles);
+        const streams = mediaSource.MediaStreams || [];
+        // 额外部分不使用详情页上主视频选中的字幕序号
+        let selectSubtitles = playbackItemId ? null : document.querySelector(selectors.selectSubtitles);
         let subTitlePath = '';
         //返回选中的外挂字幕
         if (selectSubtitles && selectSubtitles.value > 0) {
-            let SubIndex = mediaSource.MediaStreams.findIndex(m => m.Index == selectSubtitles.value && m.IsExternal);
+            let SubIndex = streams.findIndex(m => m.Index == selectSubtitles.value && m.IsExternal);
             if (SubIndex > -1) {
-                let subtitleCodec = mediaSource.MediaStreams[SubIndex].Codec;
+                let subtitleCodec = streams[SubIndex].Codec;
                 subTitlePath = `/${mediaSource.Id}/Subtitles/${selectSubtitles.value}/Stream.${subtitleCodec}`;
             }
         }
         else {
             //默认尝试返回第一个外挂中文字幕
-            let chiSubIndex = mediaSource.MediaStreams.findIndex(m => m.Language == "chi" && m.IsExternal);
+            let chiSubIndex = streams.findIndex(m => m.Language == "chi" && m.IsExternal);
             if (chiSubIndex > -1) {
-                let subtitleCodec = mediaSource.MediaStreams[chiSubIndex].Codec;
+                let subtitleCodec = streams[chiSubIndex].Codec;
                 subTitlePath = `/${mediaSource.Id}/Subtitles/${chiSubIndex}/Stream.${subtitleCodec}`;
             } else {
                 //尝试返回第一个外挂字幕
-                let externalSubIndex = mediaSource.MediaStreams.findIndex(m => m.IsExternal);
+                let externalSubIndex = streams.findIndex(m => m.IsExternal);
                 if (externalSubIndex > -1) {
-                    let subtitleCodec = mediaSource.MediaStreams[externalSubIndex].Codec;
+                    let subtitleCodec = streams[externalSubIndex].Codec;
                     subTitlePath = `/${mediaSource.Id}/Subtitles/${externalSubIndex}/Stream.${subtitleCodec}`;
                 }
             }
@@ -303,23 +327,31 @@
 
     async function getEmbyMediaInfo() {
         let itemInfo = await getItemInfo();
+        if (!itemInfo || !itemInfo.MediaSources || itemInfo.MediaSources.length === 0) {
+            console.error("没有可用的媒体源", playbackItemId || itemInfo);
+            throw new Error("没有可用的媒体源");
+        }
         let mediaSourceId = itemInfo.MediaSources[0].Id;
-        let selectSource = document.querySelector(selectors.selectSource);
-        if (selectSource && selectSource.value.length > 0) {
-            mediaSourceId = selectSource.value;
+        if (!playbackItemId) {
+            let selectSource = document.querySelector(selectors.selectSource);
+            if (selectSource && selectSource.value.length > 0) {
+                mediaSourceId = selectSource.value;
+            }
         }
         // let selectAudio = document.querySelector("div[is='emby-scroller']:not(.hide) select.selectAudio:not([disabled])");
         const accessToken = ApiClient.accessToken();
-        let mediaSource = itemInfo.MediaSources.find(m => m.Id == mediaSourceId);
+        let mediaSource = itemInfo.MediaSources.find(m => m.Id == mediaSourceId) || itemInfo.MediaSources[0];
         let uri = isEmby ? "/emby/videos" : "/Items";
         let baseUrl = `${ApiClient._serverAddress}${uri}/${itemInfo.Id}`;
         let subPath = getSubPath(mediaSource);
         let subUrl = subPath.length > 0 ? `${baseUrl}${subPath}?api_key=${accessToken}` : "";
         let streamUrl = `${baseUrl}/`;
-        if (mediaSource.Path.startsWith("http") && localStorage.getItem(lsKeys.strmDirect) === "1") {
-            streamUrl = decodeURIComponent(mediaSource.Path);
+        const sourcePath = mediaSource.Path || "";
+        if (sourcePath.startsWith("http") && localStorage.getItem(lsKeys.strmDirect) === "1") {
+            streamUrl = decodeURIComponent(sourcePath);
         } else {
-            let fileName = mediaSource.IsInfiniteStream ? `master.m3u8` : decodeURIComponent(mediaSource.Path.replace(fileNameReg, ""));
+            const nameForFile = sourcePath || mediaSource.Name || itemInfo.Name || "video";
+            let fileName = mediaSource.IsInfiniteStream ? `master.m3u8` : decodeURIComponent(nameForFile.replace(fileNameReg, ""));
             if (isEmby) {
                 if (mediaSource.IsInfiniteStream) {
                     streamUrl += useRealFileName && mediaSource.Name ? `${mediaSource.Name}.m3u8` : fileName;
@@ -335,7 +367,8 @@
             }
             streamUrl += `?api_key=${accessToken}&Static=true&MediaSourceId=${mediaSourceId}&DeviceId=${ApiClient._deviceId}`;
         }
-        let position = parseInt(itemInfo.UserData.PlaybackPositionTicks / 10000);
+        const playbackTicks = itemInfo.UserData && itemInfo.UserData.PlaybackPositionTicks;
+        let position = playbackTicks ? parseInt(playbackTicks / 10000) : 0;
         let intent = await getIntent(mediaSource, position);
         console.log(streamUrl, subUrl, intent);
         return {
@@ -347,17 +380,18 @@
 
     async function getIntent(mediaSource, position) {
         // 直播节目查询items接口没有path
+        const titlePath = mediaSource.Path || mediaSource.Name || "video";
         let title = mediaSource.IsInfiniteStream
             ? mediaSource.Name
-            : decodeURIComponent(mediaSource.Path.replace(fileNameReg, ""));
-        let externalSubs = mediaSource.MediaStreams.filter(m => m.IsExternal == true);
+            : decodeURIComponent(titlePath.replace(fileNameReg, ""));
+        let externalSubs = (mediaSource.MediaStreams || []).filter(m => m.IsExternal == true);
         let subs = ''; // 要求是android.net.uri[] ?
         let subs_name = '';
         let subs_filename = '';
         let subs_enable = '';
         if (externalSubs) {
             subs_name = externalSubs.map(s => s.DisplayTitle);
-            subs_filename = externalSubs.map(s => s.Path.split('/').pop());
+            subs_filename = externalSubs.map(s => (s.Path || "").split('/').pop());
         }
         return {
             title: title,
@@ -659,6 +693,83 @@
         return false;
     }
 
+    function externalPlayersForMenu() {
+        const hideByOS = localStorage.getItem(lsKeys.hideByOS) === "1";
+        return playBtns.filter(btn => {
+            if (customBtns.some(item => item.id === btn.id)) {
+                return false;
+            }
+            if (hideByOS && btn.osCheck && !btn.osCheck.some(check => check())) {
+                return false;
+            }
+            return true;
+        });
+    }
+
+    function isAdditionalPartContext(options) {
+        const items = options && (options.items || (options.item ? [options.item] : []));
+        const item = items && items[0];
+        if (!item || !item.Id) {
+            return false;
+        }
+        const extraType = item.ExtraType;
+        const fromType = extraType === "AdditionalPart" || extraType === 10;
+        const element = options.itemElement || options.positionTo;
+        const fromCard = !!(element && element.closest && element.closest(".additionalPartsItemsContainer"));
+        if (fromType || fromCard || additionalPartIds.has(String(item.Id))) {
+            additionalPartIds.add(String(item.Id));
+            return true;
+        }
+        return false;
+    }
+
+    function registerAdditionalPartCommand() {
+        if (partCommandRegistered || !window.Emby || typeof Emby.importModule !== "function") {
+            return;
+        }
+        partCommandRegistered = true;
+        Emby.importModule("./modules/common/itemmanager/itemmanager.js").then(module => {
+            const manager = module && (module.default || module);
+            if (!manager || typeof manager.registerCommandSource !== "function") {
+                partCommandRegistered = false;
+                return;
+            }
+            manager.registerCommandSource({
+                getCommands(options) {
+                    if (!isAdditionalPartContext(options)) {
+                        return [];
+                    }
+                    return externalPlayersForMenu().map(btn => ({
+                        name: "外部播放 · " + btn.title,
+                        id: "external-" + btn.id,
+                        icon: "open_in_new",
+                    }));
+                },
+                executeCommand(command, items) {
+                    const player = playBtns.find(btn => "external-" + btn.id === command);
+                    const item = items && items[0];
+                    if (!player || !item || !item.Id) {
+                        return Promise.resolve();
+                    }
+                    playbackItemId = item.Id;
+                    return Promise.resolve().then(() => player.onClick()).finally(() => {
+                        playbackItemId = null;
+                    });
+                },
+            });
+        }).catch(() => {
+            partCommandRegistered = false;
+        });
+    }
+
+    const partCommandTimer = setInterval(() => {
+        if (!window.Emby || typeof Emby.importModule !== "function") {
+            return;
+        }
+        clearInterval(partCommandTimer);
+        registerAdditionalPartCommand();
+    }, 500);
+
     // emby/jellyfin CustomEvent
     // see: https://github.com/MediaBrowser/emby-web-defaultskin/blob/822273018b82a4c63c2df7618020fb837656868d/nowplaying/videoosd.js#L691
     // monitor dom changements
@@ -674,6 +785,7 @@
             isItemDetailPage = e.detail.params && e.detail.params.id;
         }
         if (isItemDetailPage) {
+            registerAdditionalPartCommand();
             const mutation = new MutationObserver(function() {
                 if (showFlag()) {
                     init();
