@@ -4,7 +4,7 @@
 // @name:zh      embyLaunchPotplayer
 // @name:zh-CN   embyLaunchPotplayer
 // @namespace    http://tampermonkey.net/
-// @version      1.1.25
+// @version      1.1.27
 // @description  emby/jellfin launch extetnal player
 // @description:zh-cn emby/jellfin 调用外部播放器
 // @description:en  emby/jellfin to external player
@@ -769,6 +769,169 @@
         clearInterval(partCommandTimer);
         registerAdditionalPartCommand();
     }, 500);
+
+    // 标题以「番号 + 标题」开头时，番号可点击复制
+    const codeTitleRe = /^(?:[\[【(]\s*)?((?:FC2-?(?:PPV-?)?\d{5,8}|\d{2,6}[A-Z]{2,12}-\d{3,5}|[A-Z]\d{2,3}-\d{3,5}|[A-Z]{2,12}-\d{3,5})(?:-(?:C|UC|U|CD\d{1,2}|4K|FHD|HD|LE))?)(?:\s*[\]】)])?(?:(\s*[-–—]\s*|[_．.·]+|\s+)(.+)|([\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}].*))?$/iu;
+    const blockedCodePrefix = /^(?:HD|SD|FHD|UHD|HDR|DVD|BD|BLURAY|EP|VOL|NO|PART|CD|ID|AVC|HEVC|AAC)$/i;
+    const codeTitleSelector = [
+        ".detailNameContainer h1",
+        ".detailNameContainer h3",
+        ".cardText:not(.cardText-secondary)",
+        ".listItemBodyText:not(.listItemBodyText-secondary)",
+    ].join(",");
+
+    function normalizeCodeTitle(text) {
+        return (text || "").replace(/[－—–]/g, "-").replace(/　/g, " ").trim();
+    }
+
+    function splitCodeTitle(text) {
+        const normalized = normalizeCodeTitle(text);
+        if (!normalized || normalized.length > 300) {
+            return null;
+        }
+        const matched = normalized.match(codeTitleRe);
+        if (!matched) {
+            return null;
+        }
+        const code = matched[1];
+        const prefix = code.match(/^(?:\d+)?([A-Z]+)/i);
+        if (!prefix || blockedCodePrefix.test(prefix[1])) {
+            return null;
+        }
+        const separator = matched[2] || "";
+        const rest = matched[3] || matched[4] || "";
+        return { code, separator, rest };
+    }
+
+    function ensureCodeStyle() {
+        if (document.getElementById("embyLaunchPotplayer-code-style")) {
+            return;
+        }
+        const style = document.createElement("style");
+        style.id = "embyLaunchPotplayer-code-style";
+        style.textContent = [
+            ".embyLaunchPotplayer-code{cursor:pointer;display:inline-flex;align-items:center;vertical-align:middle;margin-inline-start:.28em;color:inherit;opacity:.8;}",
+            ".embyLaunchPotplayer-code .md-icon{font-size:.68em;width:1em;height:1em;line-height:1;margin:0;}",
+            ".embyLaunchPotplayer-code:hover{opacity:1;}",
+            ".embyLaunchPotplayer-code.is-copied{color:#3dd68c;opacity:1;}",
+        ].join("");
+        document.head.appendChild(style);
+    }
+
+    function codeTitleText(el) {
+        let text = "";
+        el.childNodes.forEach(node => {
+            if (node.nodeType === 1 && node.classList.contains("embyLaunchPotplayer-code")) {
+                return;
+            }
+            text += node.textContent || "";
+        });
+        return normalizeCodeTitle(text);
+    }
+
+    function decorateCodeTitle(el) {
+        if (!el || el.nodeType !== 1 || !el.matches(codeTitleSelector)) {
+            return;
+        }
+        const text = codeTitleText(el);
+        const chip = el.querySelector(":scope > .embyLaunchPotplayer-code");
+        if (el.dataset.launchCodeSource === text && (el.dataset.launchCodeHit !== "1" || chip)) {
+            return;
+        }
+        const parsed = splitCodeTitle(text);
+        el.dataset.launchCodeSource = text;
+        el.dataset.launchCodeHit = parsed ? "1" : "0";
+        if (!parsed || el.querySelector("img, a, button, input, textarea")) {
+            el.dataset.launchCodeHit = "0";
+            return;
+        }
+        const codeEl = document.createElement("span");
+        codeEl.className = "embyLaunchPotplayer-code";
+        codeEl.dataset.code = parsed.code;
+        codeEl.title = "点击复制番号";
+        const icon = document.createElement("i");
+        icon.className = "md-icon";
+        icon.textContent = "content_paste";
+        codeEl.appendChild(icon);
+        el.textContent = "";
+        el.appendChild(document.createTextNode(parsed.code));
+        el.appendChild(codeEl);
+        if (parsed.rest) {
+            el.appendChild(document.createTextNode(parsed.separator + parsed.rest));
+        }
+    }
+
+    function scanCodeTitles(root) {
+        if (!root) {
+            return;
+        }
+        if (root.nodeType === 3) {
+            decorateCodeTitle(root.parentElement);
+            return;
+        }
+        if (root.nodeType !== 1) {
+            return;
+        }
+        decorateCodeTitle(root);
+        if (root.querySelectorAll) {
+            root.querySelectorAll(codeTitleSelector).forEach(decorateCodeTitle);
+        }
+    }
+
+    function flashCopiedCode(codeEl, ok) {
+        codeEl.classList.toggle("is-copied", ok);
+        codeEl.title = ok ? "已复制" : "复制失败";
+        setTimeout(() => {
+            codeEl.classList.remove("is-copied");
+            codeEl.title = "点击复制番号";
+        }, 1200);
+    }
+
+    function stopCodeEvent(event) {
+        const codeEl = event.target.closest && event.target.closest(".embyLaunchPotplayer-code");
+        if (!codeEl) {
+            return;
+        }
+        event.stopPropagation();
+        event.stopImmediatePropagation();
+    }
+
+    document.addEventListener("pointerdown", stopCodeEvent, true);
+    document.addEventListener("pointerup", stopCodeEvent, true);
+
+    document.addEventListener("click", (event) => {
+        const codeEl = event.target.closest && event.target.closest(".embyLaunchPotplayer-code");
+        if (!codeEl) {
+            return;
+        }
+        event.preventDefault();
+        event.stopPropagation();
+        event.stopImmediatePropagation();
+        writeClipboard(codeEl.dataset.code || "").then((ok) => {
+            flashCopiedCode(codeEl, !!ok);
+        });
+    }, true);
+
+    function watchCodeTitles() {
+        ensureCodeStyle();
+        scanCodeTitles(document.body);
+        const observer = new MutationObserver((records) => {
+            records.forEach((record) => {
+                if (record.type === "characterData") {
+                    scanCodeTitles(record.target.parentElement);
+                    return;
+                }
+                record.addedNodes.forEach(scanCodeTitles);
+            });
+        });
+        observer.observe(document.body, { childList: true, subtree: true, characterData: true });
+    }
+
+    if (document.body) {
+        watchCodeTitles();
+    } else {
+        document.addEventListener("DOMContentLoaded", watchCodeTitles);
+    }
 
     // emby/jellyfin CustomEvent
     // see: https://github.com/MediaBrowser/emby-web-defaultskin/blob/822273018b82a4c63c2df7618020fb837656868d/nowplaying/videoosd.js#L691

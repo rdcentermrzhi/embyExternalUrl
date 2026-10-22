@@ -71,6 +71,12 @@ Emby Web, iconOnly: true
 
 ### CHANGELOG
 
+#### 1.1.27
+1. fix(embyLaunchPotplayer): 番号旁改为粘贴小图标，不再用下划线
+
+#### 1.1.26
+1. feat(embyLaunchPotplayer): 标题以番号开头时，番号可点击复制
+
 #### 1.1.25
 1. feat(embyLaunchPotplayer): 额外部分的外部播放放进卡片右键菜单，不再单独占一颗按钮
 
