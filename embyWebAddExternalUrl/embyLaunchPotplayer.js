@@ -4,7 +4,7 @@
 // @name:zh      embyLaunchPotplayer
 // @name:zh-CN   embyLaunchPotplayer
 // @namespace    http://tampermonkey.net/
-// @version      1.1.32
+// @version      1.1.35
 // @description  emby/jellfin launch extetnal player
 // @description:zh-cn emby/jellfin 调用外部播放器
 // @description:en  emby/jellfin to external player
@@ -676,27 +676,25 @@
     }
 
     function writeClipboardLegacy(text) {
-        const holder = document.createElement("span");
-        holder.textContent = text;
-        holder.style.cssText = "position:fixed;top:0;left:0;opacity:0;white-space:pre;pointer-events:none;";
-        document.body.appendChild(holder);
-        const selection = window.getSelection();
-        const range = document.createRange();
-        range.selectNodeContents(holder);
-        selection.removeAllRanges();
-        selection.addRange(range);
+        const input = document.createElement("textarea");
+        input.value = text;
+        input.setAttribute("readonly", "");
+        input.setAttribute("inputmode", "none");
+        input.setAttribute("autocomplete", "off");
+        input.setAttribute("aria-hidden", "true");
+        input.style.cssText = "position:fixed;top:0;left:0;width:2em;height:2em;padding:0;border:0;outline:none;box-shadow:none;background:transparent;color:transparent;font-size:16px;";
+        document.body.appendChild(input);
+        input.focus({ preventScroll: true });
+        input.select();
+        input.setSelectionRange(0, input.value.length);
         let ok = false;
         try {
             ok = document.execCommand("copy");
         } catch (error) {
             ok = false;
         }
-        selection.removeAllRanges();
-        holder.remove();
-        const active = document.activeElement;
-        if (active && active !== document.body && typeof active.blur === "function") {
-            active.blur();
-        }
+        input.blur();
+        input.remove();
         return ok;
     }
 
@@ -778,8 +776,8 @@
     }, 500);
 
     // 标题以「番号 + 标题」开头时，番号可点击复制
-    const codeTitleRe = /^(?:[\[【(]\s*)?((?:FC2-?(?:PPV-?)?\d{5,8}|\d{2,6}[A-Z]{2,12}-\d{3,5}|[A-Z]\d{2,3}-\d{3,5}|[A-Z]{2,12}-\d{3,5})(?:-(?:C|UC|U|CD\d{1,2}|4K|FHD|HD|LE))?)(?:\s*[\]】)])?(?:(\s*[-–—]\s*|[_．.·]+|\s+)(.+)|([\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}].*))?$/iu;
-    const blockedCodePrefix = /^(?:HD|SD|FHD|UHD|HDR|DVD|BD|BLURAY|EP|VOL|NO|PART|CD|ID|AVC|HEVC|AAC)$/i;
+    const codeTitleRe = /^(?:[\[【(]\s*)?((?:FC2-?(?:PPV-?)?\d{5,8}|\d{2,6}[A-Z]{2,12}-\d{2,5}|[A-Z]\d{2,3}-\d{2,5}|[A-Z]{2,12}-\d{2,5})(?:-(?:C|UC|U|CD\d{1,2}|4K|FHD|HD|LE))?)(?:\s*[\]】)])?(?:(\s*[-–—]\s*|[_．.·]+|\s+)(.+)|([\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}].*))?$/iu;
+    const blockedCodePrefix = /^(?:HD|SD|FHD|UHD|HDR|DVD|BD|BLURAY|EP|VOL|NO|PART|CD|ID|AVC|HEVC|AAC|COVID)$/i;
     const codeTitleSelector = [
         ".detailNameContainer h1",
         ".detailNameContainer h3",
@@ -819,9 +817,10 @@
         const style = document.createElement("style");
         style.id = "embyLaunchPotplayer-code-style";
         style.textContent = [
-            ".embyLaunchPotplayer-code{cursor:pointer;display:inline-flex !important;align-items:center;justify-content:center;width:18px !important;height:18px !important;min-width:18px !important;min-height:18px !important;margin:0 .15em 0 .28em;color:#8ecaff;vertical-align:-0.15em;user-select:none;-webkit-user-select:none;touch-action:manipulation;}",
+            ".embyLaunchPotplayer-code{cursor:pointer;display:inline-flex !important;align-items:center;justify-content:center;width:18px !important;height:18px !important;min-width:18px !important;min-height:18px !important;margin:0 .15em 0 .28em;color:#8ecaff;vertical-align:0.2em;user-select:none;-webkit-user-select:none;touch-action:manipulation;}",
             ".embyLaunchPotplayer-code svg{width:18px !important;height:18px !important;fill:currentColor;display:block;overflow:visible;}",
             ".embyLaunchPotplayer-code.is-copied{color:#3dd68c;}",
+            ".embyLaunchPotplayer-code-toast{position:fixed;left:50%;bottom:max(12%,env(safe-area-inset-bottom));transform:translateX(-50%);z-index:100000;padding:.55em .9em;border-radius:8px;background:rgba(20,20,20,.9);color:#fff;font-size:15px;line-height:1.4;pointer-events:none;}",
         ].join("");
         document.head.appendChild(style);
     }
@@ -933,12 +932,30 @@
         }
     }
 
+    let codeCopiedAt = 0;
+
     function flashCopiedCode(codeEl, ok) {
         codeEl.classList.toggle("is-copied", ok);
         codeEl.title = ok ? "已复制" : "复制失败";
         setTimeout(() => {
             codeEl.classList.remove("is-copied");
             codeEl.title = "点击复制番号";
+        }, 1200);
+    }
+
+    function showCopyToast(ok, code) {
+        let toast = document.getElementById("embyLaunchPotplayer-code-toast");
+        if (!toast) {
+            toast = document.createElement("div");
+            toast.id = "embyLaunchPotplayer-code-toast";
+            toast.className = "embyLaunchPotplayer-code-toast";
+            document.body.appendChild(toast);
+        }
+        toast.textContent = ok ? "已复制 " + code : "复制失败";
+        toast.style.display = "block";
+        clearTimeout(showCopyToast.timer);
+        showCopyToast.timer = setTimeout(() => {
+            toast.style.display = "none";
         }, 1200);
     }
 
@@ -952,32 +969,54 @@
         return writeClipboardLegacy(text);
     }
 
-    function codeElFromEvent(event) {
-        return event.target.closest && event.target.closest(".embyLaunchPotplayer-code");
+    function copyCodeFromChip(codeEl) {
+        if (Date.now() - codeCopiedAt < 700) {
+            return;
+        }
+        const code = codeEl.dataset.code || "";
+        const ok = copyCodeNow(code);
+        if (ok) {
+            codeCopiedAt = Date.now();
+        }
+        flashCopiedCode(codeEl, ok);
+        showCopyToast(ok, code);
     }
 
-    document.addEventListener("pointerdown", (event) => {
+    function codeElFromEvent(event) {
+        const target = event.target;
+        if (!target || !target.closest) {
+            return null;
+        }
+        return target.closest(".embyLaunchPotplayer-code");
+    }
+
+    function handleCodeGesture(event) {
         const codeEl = codeElFromEvent(event);
         if (!codeEl) {
             return;
         }
-        flashCopiedCode(codeEl, copyCodeNow(codeEl.dataset.code || ""));
-        event.preventDefault();
-        event.stopPropagation();
-        event.stopImmediatePropagation();
-    }, true);
-
-    function stopCodeEvent(event) {
-        if (!codeElFromEvent(event)) {
+        const secureCopy = navigator.clipboard && window.isSecureContext;
+        if (event.type === "pointerdown" || event.type === "touchstart") {
+            event.stopPropagation();
+            event.stopImmediatePropagation();
+            if (secureCopy) {
+                copyCodeFromChip(codeEl);
+            }
             return;
+        }
+        if (event.type !== "pointerup" && (!secureCopy || event.type === "click")) {
+            copyCodeFromChip(codeEl);
         }
         event.preventDefault();
         event.stopPropagation();
         event.stopImmediatePropagation();
     }
 
-    document.addEventListener("pointerup", stopCodeEvent, true);
-    document.addEventListener("click", stopCodeEvent, true);
+    document.addEventListener("pointerdown", handleCodeGesture, true);
+    document.addEventListener("pointerup", handleCodeGesture, true);
+    document.addEventListener("click", handleCodeGesture, true);
+    document.addEventListener("touchstart", handleCodeGesture, { capture: true, passive: true });
+    document.addEventListener("touchend", handleCodeGesture, { capture: true, passive: false });
 
     function watchCodeTitles() {
         ensureCodeStyle();
