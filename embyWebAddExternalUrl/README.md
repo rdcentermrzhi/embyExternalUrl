@@ -47,10 +47,10 @@ https://github.com/chen3861229/dd-danmaku#%E5%AE%89%E8%A3%85
 const iconConfig = {
     // 图标来源,以下三选一,注释为只留一个,3 的优先级最高
     // 1.add icons from jsdelivr, network
-    baseUrl: "https://emby-external-url.7o7o.cc/embyWebAddExternalUrl/icons",
+    // baseUrl: "https://emby-external-url.7o7o.cc/embyWebAddExternalUrl/icons",
     // baseUrl: "https://fastly.jsdelivr.net/gh/bpking1/embyExternalUrl@main/embyWebAddExternalUrl/icons",
     // 2.server local icons, same as /emby-server/system/dashboard-ui/icons
-    // baseUrl: "icons",
+    baseUrl: "icons",
     // 3.add icons from Base64, script inner, this script size 22.5KB to 74KB,
     // 自行复制 ./iconsExt.js 内容到此脚本的 getIconsExt 中
     // 移除最后几个冗余的自定义开关
@@ -70,6 +70,12 @@ Emby Web, iconOnly: true
 ![image](https://emby-external-url.7o7o.cc/embyWebAddExternalUrl/preview/preview02.png)
 
 ### CHANGELOG
+
+#### 1.1.30
+1. fix(embyLaunchPotplayer): 播放器图标改从本地 icons 目录加载，不再请求外网
+
+#### 1.1.29
+1. fix(embyLaunchPotplayer): 番号粘贴图标改为矢量图，避免手机上被字体裁掉后不显示
 
 #### 1.1.28
 1. fix(embyLaunchPotplayer): 手机上点番号粘贴图标不再唤起输入法

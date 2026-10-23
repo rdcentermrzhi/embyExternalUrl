@@ -4,7 +4,7 @@
 // @name:zh      embyLaunchPotplayer
 // @name:zh-CN   embyLaunchPotplayer
 // @namespace    http://tampermonkey.net/
-// @version      1.1.28
+// @version      1.1.30
 // @description  emby/jellfin launch extetnal player
 // @description:zh-cn emby/jellfin 调用外部播放器
 // @description:en  emby/jellfin to external player
@@ -20,10 +20,10 @@
     const iconConfig = {
         // 图标来源,以下三选一,注释为只留一个,3 的优先级最高
         // 1.add icons from jsdelivr, network
-        baseUrl: "https://emby-external-url.7o7o.cc/embyWebAddExternalUrl/icons",
+        // baseUrl: "https://emby-external-url.7o7o.cc/embyWebAddExternalUrl/icons",
         // baseUrl: "https://fastly.jsdelivr.net/gh/bpking1/embyExternalUrl@main/embyWebAddExternalUrl/icons",
         // 2.server local icons, same as /emby-server/system/dashboard-ui/icons
-        // baseUrl: "icons",
+        baseUrl: "icons",
         // 3.add icons from Base64, script inner, this script size 22.5KB to 74KB,
         // 自行复制 ./iconsExt.js 内容到此脚本的 getIconsExt 中
         // 移除最后几个冗余的自定义开关
@@ -817,12 +817,21 @@
         const style = document.createElement("style");
         style.id = "embyLaunchPotplayer-code-style";
         style.textContent = [
-            ".embyLaunchPotplayer-code{cursor:pointer;display:inline-flex;align-items:center;vertical-align:middle;margin-inline-start:.28em;color:inherit;opacity:.8;user-select:none;-webkit-user-select:none;touch-action:manipulation;}",
-            ".embyLaunchPotplayer-code .md-icon{font-size:.68em;width:1em;height:1em;line-height:1;margin:0;}",
-            ".embyLaunchPotplayer-code:hover{opacity:1;}",
-            ".embyLaunchPotplayer-code.is-copied{color:#3dd68c;opacity:1;}",
+            ".embyLaunchPotplayer-code{cursor:pointer;display:inline-flex;align-items:center;vertical-align:-0.15em;margin-inline-start:.35em;color:inherit;line-height:0;user-select:none;-webkit-user-select:none;touch-action:manipulation;}",
+            ".embyLaunchPotplayer-code svg{width:.85em;height:.85em;fill:currentColor;display:block;overflow:visible;}",
+            ".embyLaunchPotplayer-code.is-copied{color:#3dd68c;}",
         ].join("");
         document.head.appendChild(style);
+    }
+
+    function createPasteIcon() {
+        const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+        svg.setAttribute("viewBox", "0 0 24 24");
+        svg.setAttribute("aria-hidden", "true");
+        const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+        path.setAttribute("d", "M19 2h-4.18C14.4.84 13.3 0 12 0c-1.3 0-2.4.84-2.82 2H5c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm-7 0c.55 0 1 .45 1 1s-.45 1-1 1-1-.45-1-1 .45-1 1-1zm7 18H5V4h2v3h10V4h2v16z");
+        svg.appendChild(path);
+        return svg;
     }
 
     function codeTitleText(el) {
@@ -842,7 +851,7 @@
         }
         const text = codeTitleText(el);
         const chip = el.querySelector(":scope > .embyLaunchPotplayer-code");
-        if (el.dataset.launchCodeSource === text && (el.dataset.launchCodeHit !== "1" || chip)) {
+        if (el.dataset.launchCodeSource === text && (el.dataset.launchCodeHit !== "1" || (chip && chip.querySelector("svg")))) {
             return;
         }
         const parsed = splitCodeTitle(text);
@@ -856,10 +865,7 @@
         codeEl.className = "embyLaunchPotplayer-code";
         codeEl.dataset.code = parsed.code;
         codeEl.title = "点击复制番号";
-        const icon = document.createElement("i");
-        icon.className = "md-icon";
-        icon.textContent = "content_paste";
-        codeEl.appendChild(icon);
+        codeEl.appendChild(createPasteIcon());
         el.textContent = "";
         el.appendChild(document.createTextNode(parsed.code));
         el.appendChild(codeEl);
