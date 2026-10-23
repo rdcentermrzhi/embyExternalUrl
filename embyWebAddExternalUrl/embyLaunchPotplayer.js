@@ -4,7 +4,7 @@
 // @name:zh      embyLaunchPotplayer
 // @name:zh-CN   embyLaunchPotplayer
 // @namespace    http://tampermonkey.net/
-// @version      1.1.30
+// @version      1.1.32
 // @description  emby/jellfin launch extetnal player
 // @description:zh-cn emby/jellfin 调用外部播放器
 // @description:en  emby/jellfin to external player
@@ -783,20 +783,20 @@
     const codeTitleSelector = [
         ".detailNameContainer h1",
         ".detailNameContainer h3",
+        "h1.itemName-primary",
+        "h3.itemName-secondary",
         ".cardText:not(.cardText-secondary)",
         ".listItemBodyText:not(.listItemBodyText-secondary)",
     ].join(",");
 
-    function normalizeCodeTitle(text) {
-        return (text || "").replace(/[－—–]/g, "-").replace(/　/g, " ").trim();
-    }
-
-    function splitCodeTitle(text) {
-        const normalized = normalizeCodeTitle(text);
-        if (!normalized || normalized.length > 300) {
+    function locateCode(raw) {
+        const normalized = (raw || "").replace(/[－—–]/g, "-").replace(/　/g, " ");
+        const lead = normalized.length - normalized.trimStart().length;
+        const trimmed = normalized.trim();
+        if (!trimmed || trimmed.length > 300) {
             return null;
         }
-        const matched = normalized.match(codeTitleRe);
+        const matched = trimmed.match(codeTitleRe);
         if (!matched) {
             return null;
         }
@@ -805,9 +805,11 @@
         if (!prefix || blockedCodePrefix.test(prefix[1])) {
             return null;
         }
-        const separator = matched[2] || "";
-        const rest = matched[3] || matched[4] || "";
-        return { code, separator, rest };
+        const rel = matched[0].indexOf(code);
+        if (rel < 0) {
+            return null;
+        }
+        return { code, end: lead + rel + code.length };
     }
 
     function ensureCodeStyle() {
@@ -817,8 +819,8 @@
         const style = document.createElement("style");
         style.id = "embyLaunchPotplayer-code-style";
         style.textContent = [
-            ".embyLaunchPotplayer-code{cursor:pointer;display:inline-flex;align-items:center;vertical-align:-0.15em;margin-inline-start:.35em;color:inherit;line-height:0;user-select:none;-webkit-user-select:none;touch-action:manipulation;}",
-            ".embyLaunchPotplayer-code svg{width:.85em;height:.85em;fill:currentColor;display:block;overflow:visible;}",
+            ".embyLaunchPotplayer-code{cursor:pointer;display:inline-flex !important;align-items:center;justify-content:center;width:18px !important;height:18px !important;min-width:18px !important;min-height:18px !important;margin:0 .15em 0 .28em;color:#8ecaff;vertical-align:-0.15em;user-select:none;-webkit-user-select:none;touch-action:manipulation;}",
+            ".embyLaunchPotplayer-code svg{width:18px !important;height:18px !important;fill:currentColor;display:block;overflow:visible;}",
             ".embyLaunchPotplayer-code.is-copied{color:#3dd68c;}",
         ].join("");
         document.head.appendChild(style);
@@ -827,6 +829,8 @@
     function createPasteIcon() {
         const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
         svg.setAttribute("viewBox", "0 0 24 24");
+        svg.setAttribute("width", "18");
+        svg.setAttribute("height", "18");
         svg.setAttribute("aria-hidden", "true");
         const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
         path.setAttribute("d", "M19 2h-4.18C14.4.84 13.3 0 12 0c-1.3 0-2.4.84-2.82 2H5c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm-7 0c.55 0 1 .45 1 1s-.45 1-1 1-1-.45-1-1 .45-1 1-1zm7 18H5V4h2v3h10V4h2v16z");
@@ -834,7 +838,7 @@
         return svg;
     }
 
-    function codeTitleText(el) {
+    function rawTitleText(el) {
         let text = "";
         el.childNodes.forEach(node => {
             if (node.nodeType === 1 && node.classList.contains("embyLaunchPotplayer-code")) {
@@ -842,35 +846,73 @@
             }
             text += node.textContent || "";
         });
-        return normalizeCodeTitle(text);
+        return text;
+    }
+
+    function fillPasteChip(codeEl, code) {
+        codeEl.className = "embyLaunchPotplayer-code";
+        codeEl.dataset.code = code;
+        codeEl.title = "点击复制番号";
+        if (!codeEl.querySelector("svg")) {
+            codeEl.textContent = "";
+            codeEl.appendChild(createPasteIcon());
+        }
     }
 
     function decorateCodeTitle(el) {
         if (!el || el.nodeType !== 1 || !el.matches(codeTitleSelector)) {
             return;
         }
-        const text = codeTitleText(el);
+        if (el.closest(".embyLaunchPotplayer-code")) {
+            return;
+        }
+        const outside = el.nextElementSibling;
+        if (outside && outside.classList.contains("embyLaunchPotplayer-code")) {
+            outside.remove();
+        }
+        if ([...el.children].some(child => !child.classList.contains("embyLaunchPotplayer-code"))) {
+            return;
+        }
+        const raw = rawTitleText(el);
+        const parsed = locateCode(raw);
         const chip = el.querySelector(":scope > .embyLaunchPotplayer-code");
-        if (el.dataset.launchCodeSource === text && (el.dataset.launchCodeHit !== "1" || (chip && chip.querySelector("svg")))) {
+        if (!parsed) {
+            if (chip) {
+                chip.remove();
+                el.textContent = raw;
+            }
             return;
         }
-        const parsed = splitCodeTitle(text);
-        el.dataset.launchCodeSource = text;
-        el.dataset.launchCodeHit = parsed ? "1" : "0";
-        if (!parsed || el.querySelector("img, a, button, input, textarea")) {
-            el.dataset.launchCodeHit = "0";
+        const before = raw.slice(0, parsed.end);
+        const after = raw.slice(parsed.end);
+        const next = chip && chip.nextSibling;
+        const afterOk = after
+            ? !!(next && next.nodeType === 3 && next.textContent === after && !next.nextSibling)
+            : !next;
+        if (chip
+            && chip.dataset.code === parsed.code
+            && chip.previousSibling
+            && chip.previousSibling.nodeType === 3
+            && chip.previousSibling.textContent === before
+            && !chip.previousSibling.previousSibling
+            && afterOk) {
             return;
         }
+        if (chip) {
+            chip.remove();
+        }
+        [...el.childNodes].forEach(node => {
+            if (node.nodeType === 3) {
+                node.remove();
+            }
+        });
         const codeEl = document.createElement("span");
-        codeEl.className = "embyLaunchPotplayer-code";
-        codeEl.dataset.code = parsed.code;
-        codeEl.title = "点击复制番号";
-        codeEl.appendChild(createPasteIcon());
-        el.textContent = "";
-        el.appendChild(document.createTextNode(parsed.code));
-        el.appendChild(codeEl);
-        if (parsed.rest) {
-            el.appendChild(document.createTextNode(parsed.separator + parsed.rest));
+        fillPasteChip(codeEl, parsed.code);
+        const anchor = el.firstChild;
+        el.insertBefore(document.createTextNode(before), anchor);
+        el.insertBefore(codeEl, anchor);
+        if (after) {
+            el.insertBefore(document.createTextNode(after), anchor);
         }
     }
 
@@ -949,7 +991,7 @@
                 record.addedNodes.forEach(scanCodeTitles);
             });
         });
-        observer.observe(document.body, { childList: true, subtree: true, characterData: true });
+        observer.observe(document.body, { childList: true, subtree: true });
     }
 
     if (document.body) {

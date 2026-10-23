@@ -71,6 +71,9 @@ Emby Web, iconOnly: true
 
 ### CHANGELOG
 
+#### 1.1.31
+1. fix(embyLaunchPotplayer): 粘贴图标改到标题旁边，固定 18 像素，避免被标题样式裁掉
+
 #### 1.1.30
 1. fix(embyLaunchPotplayer): 播放器图标改从本地 icons 目录加载，不再请求外网
 
