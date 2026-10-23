@@ -71,6 +71,9 @@ Emby Web, iconOnly: true
 
 ### CHANGELOG
 
+#### 1.1.28
+1. fix(embyLaunchPotplayer): 手机上点番号粘贴图标不再唤起输入法
+
 #### 1.1.27
 1. fix(embyLaunchPotplayer): 番号旁改为粘贴小图标，不再用下划线
 

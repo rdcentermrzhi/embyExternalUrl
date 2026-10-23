@@ -4,7 +4,7 @@
 // @name:zh      embyLaunchPotplayer
 // @name:zh-CN   embyLaunchPotplayer
 // @namespace    http://tampermonkey.net/
-// @version      1.1.27
+// @version      1.1.28
 // @description  emby/jellfin launch extetnal player
 // @description:zh-cn emby/jellfin 调用外部播放器
 // @description:en  emby/jellfin to external player
@@ -663,34 +663,41 @@
     }
 
     async function writeClipboard(text) {
-        let flag = false;
-        if (navigator.clipboard) {
-            // 火狐上 need https
+        if (navigator.clipboard && window.isSecureContext) {
             try {
                 await navigator.clipboard.writeText(text);
-                flag = true;
                 console.log("成功使用 navigator.clipboard 现代剪切板实现");
+                return true;
             } catch (error) {
-                console.error('navigator.clipboard 复制到剪贴板时发生错误:', error);
+                console.error("navigator.clipboard 复制到剪贴板时发生错误:", error);
             }
-        } else {
-            flag = writeClipboardLegacy(text);
-            console.log("不存在 navigator.clipboard 现代剪切板实现,使用旧版实现");
         }
-        return flag;
+        return writeClipboardLegacy(text);
     }
 
     function writeClipboardLegacy(text) {
-        let textarea = document.createElement('textarea');
-        document.body.appendChild(textarea);
-        textarea.style.position = 'absolute';
-        textarea.style.clip = 'rect(0 0 0 0)';
-        textarea.value = text;
-        textarea.select();
-        if (document.execCommand('copy', true)) {
-            return true;
+        const holder = document.createElement("span");
+        holder.textContent = text;
+        holder.style.cssText = "position:fixed;top:0;left:0;opacity:0;white-space:pre;pointer-events:none;";
+        document.body.appendChild(holder);
+        const selection = window.getSelection();
+        const range = document.createRange();
+        range.selectNodeContents(holder);
+        selection.removeAllRanges();
+        selection.addRange(range);
+        let ok = false;
+        try {
+            ok = document.execCommand("copy");
+        } catch (error) {
+            ok = false;
         }
-        return false;
+        selection.removeAllRanges();
+        holder.remove();
+        const active = document.activeElement;
+        if (active && active !== document.body && typeof active.blur === "function") {
+            active.blur();
+        }
+        return ok;
     }
 
     function externalPlayersForMenu() {
@@ -810,7 +817,7 @@
         const style = document.createElement("style");
         style.id = "embyLaunchPotplayer-code-style";
         style.textContent = [
-            ".embyLaunchPotplayer-code{cursor:pointer;display:inline-flex;align-items:center;vertical-align:middle;margin-inline-start:.28em;color:inherit;opacity:.8;}",
+            ".embyLaunchPotplayer-code{cursor:pointer;display:inline-flex;align-items:center;vertical-align:middle;margin-inline-start:.28em;color:inherit;opacity:.8;user-select:none;-webkit-user-select:none;touch-action:manipulation;}",
             ".embyLaunchPotplayer-code .md-icon{font-size:.68em;width:1em;height:1em;line-height:1;margin:0;}",
             ".embyLaunchPotplayer-code:hover{opacity:1;}",
             ".embyLaunchPotplayer-code.is-copied{color:#3dd68c;opacity:1;}",
@@ -887,30 +894,42 @@
         }, 1200);
     }
 
-    function stopCodeEvent(event) {
-        const codeEl = event.target.closest && event.target.closest(".embyLaunchPotplayer-code");
+    function copyCodeNow(text) {
+        if (navigator.clipboard && window.isSecureContext) {
+            navigator.clipboard.writeText(text).catch((error) => {
+                console.error("navigator.clipboard 复制到剪贴板时发生错误:", error);
+            });
+            return true;
+        }
+        return writeClipboardLegacy(text);
+    }
+
+    function codeElFromEvent(event) {
+        return event.target.closest && event.target.closest(".embyLaunchPotplayer-code");
+    }
+
+    document.addEventListener("pointerdown", (event) => {
+        const codeEl = codeElFromEvent(event);
         if (!codeEl) {
             return;
         }
+        flashCopiedCode(codeEl, copyCodeNow(codeEl.dataset.code || ""));
+        event.preventDefault();
         event.stopPropagation();
         event.stopImmediatePropagation();
-    }
+    }, true);
 
-    document.addEventListener("pointerdown", stopCodeEvent, true);
-    document.addEventListener("pointerup", stopCodeEvent, true);
-
-    document.addEventListener("click", (event) => {
-        const codeEl = event.target.closest && event.target.closest(".embyLaunchPotplayer-code");
-        if (!codeEl) {
+    function stopCodeEvent(event) {
+        if (!codeElFromEvent(event)) {
             return;
         }
         event.preventDefault();
         event.stopPropagation();
         event.stopImmediatePropagation();
-        writeClipboard(codeEl.dataset.code || "").then((ok) => {
-            flashCopiedCode(codeEl, !!ok);
-        });
-    }, true);
+    }
+
+    document.addEventListener("pointerup", stopCodeEvent, true);
+    document.addEventListener("click", stopCodeEvent, true);
 
     function watchCodeTitles() {
         ensureCodeStyle();
