@@ -4,7 +4,7 @@
 // @name:zh      embyLaunchPotplayer
 // @name:zh-CN   embyLaunchPotplayer
 // @namespace    http://tampermonkey.net/
-// @version      1.1.35
+// @version      1.1.37
 // @description  emby/jellfin launch extetnal player
 // @description:zh-cn emby/jellfin 调用外部播放器
 // @description:en  emby/jellfin to external player
@@ -781,10 +781,6 @@
     const codeTitleSelector = [
         ".detailNameContainer h1",
         ".detailNameContainer h3",
-        "h1.itemName-primary",
-        "h3.itemName-secondary",
-        ".cardText:not(.cardText-secondary)",
-        ".listItemBodyText:not(.listItemBodyText-secondary)",
     ].join(",");
 
     function locateCode(raw) {
@@ -817,7 +813,7 @@
         const style = document.createElement("style");
         style.id = "embyLaunchPotplayer-code-style";
         style.textContent = [
-            ".embyLaunchPotplayer-code{cursor:pointer;display:inline-flex !important;align-items:center;justify-content:center;width:18px !important;height:18px !important;min-width:18px !important;min-height:18px !important;margin:0 .15em 0 .28em;color:#8ecaff;vertical-align:0.2em;user-select:none;-webkit-user-select:none;touch-action:manipulation;}",
+            ".embyLaunchPotplayer-code{cursor:pointer;display:inline-flex !important;align-items:center;justify-content:center;width:18px !important;height:18px !important;min-width:18px !important;min-height:18px !important;margin:0 .15em 0 .28em;color:#8ecaff;vertical-align:0.05em;user-select:none;-webkit-user-select:none;touch-action:manipulation;}",
             ".embyLaunchPotplayer-code svg{width:18px !important;height:18px !important;fill:currentColor;display:block;overflow:visible;}",
             ".embyLaunchPotplayer-code.is-copied{color:#3dd68c;}",
             ".embyLaunchPotplayer-code-toast{position:fixed;left:50%;bottom:max(12%,env(safe-area-inset-bottom));transform:translateX(-50%);z-index:100000;padding:.55em .9em;border-radius:8px;background:rgba(20,20,20,.9);color:#fff;font-size:15px;line-height:1.4;pointer-events:none;}",
@@ -915,6 +911,22 @@
         }
     }
 
+    function removeStrayPasteIcons(root) {
+        if (!root || !root.querySelectorAll) {
+            return;
+        }
+        root.querySelectorAll(".embyLaunchPotplayer-code").forEach(chip => {
+            const host = chip.parentElement;
+            if (host && host.closest(".detailNameContainer") && host.matches("h1, h3")) {
+                return;
+            }
+            chip.remove();
+            if (host && ![...host.children].some(child => child.classList.contains("embyLaunchPotplayer-code"))) {
+                host.textContent = host.textContent;
+            }
+        });
+    }
+
     function scanCodeTitles(root) {
         if (!root) {
             return;
@@ -926,6 +938,7 @@
         if (root.nodeType !== 1) {
             return;
         }
+        removeStrayPasteIcons(root);
         decorateCodeTitle(root);
         if (root.querySelectorAll) {
             root.querySelectorAll(codeTitleSelector).forEach(decorateCodeTitle);
