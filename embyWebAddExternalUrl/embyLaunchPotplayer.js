@@ -4,7 +4,7 @@
 // @name:zh      embyLaunchPotplayer
 // @name:zh-CN   embyLaunchPotplayer
 // @namespace    http://tampermonkey.net/
-// @version      1.1.37
+// @version      1.1.39
 // @description  emby/jellfin launch extetnal player
 // @description:zh-cn emby/jellfin 调用外部播放器
 // @description:en  emby/jellfin to external player
@@ -1031,55 +1031,67 @@
     document.addEventListener("touchstart", handleCodeGesture, { capture: true, passive: true });
     document.addEventListener("touchend", handleCodeGesture, { capture: true, passive: false });
 
-    function watchCodeTitles() {
+    let detailButtonTimer = null;
+
+    function stopDetailWatch() {
+        if (detailButtonTimer) {
+            clearInterval(detailButtonTimer);
+            detailButtonTimer = null;
+        }
+    }
+
+    function decorateDetailTitles(view) {
         ensureCodeStyle();
-        scanCodeTitles(document.body);
-        const observer = new MutationObserver((records) => {
-            records.forEach((record) => {
-                if (record.type === "characterData") {
-                    scanCodeTitles(record.target.parentElement);
-                    return;
-                }
-                record.addedNodes.forEach(scanCodeTitles);
-            });
-        });
-        observer.observe(document.body, { childList: true, subtree: true });
+        const scope = view && view.querySelectorAll ? view : document;
+        scope.querySelectorAll(codeTitleSelector).forEach(decorateCodeTitle);
+    }
+
+    function watchDetailPage(view, contextPath) {
+        stopDetailWatch();
+        const itemToken = contextPath || "";
+        const scope = view && view.nodeType === 1 && view !== document.body ? view : document;
+        let tries = 0;
+        detailButtonTimer = setInterval(() => {
+            tries += 1;
+            if (itemToken && location.hash.indexOf(itemToken) === -1) {
+                stopDetailWatch();
+                return;
+            }
+            const loaded = showFlag();
+            if (!loaded && tries <= 40) {
+                return;
+            }
+            clearInterval(detailButtonTimer);
+            detailButtonTimer = null;
+            if (loaded) {
+                init();
+            }
+            decorateDetailTitles(scope);
+        }, 200);
     }
 
     if (document.body) {
-        watchCodeTitles();
-    } else {
-        document.addEventListener("DOMContentLoaded", watchCodeTitles);
+        removeStrayPasteIcons(document.body);
     }
 
-    // emby/jellyfin CustomEvent
-    // see: https://github.com/MediaBrowser/emby-web-defaultskin/blob/822273018b82a4c63c2df7618020fb837656868d/nowplaying/videoosd.js#L691
-    // monitor dom changements
     document.addEventListener("viewbeforeshow", function (e) {
-        console.log("viewbeforeshow", e);
         if (isEmby === "") {
-            isEmby = !!e.detail.contextPath;
+            isEmby = !!(e.detail && e.detail.contextPath);
         }
+        const contextPath = e.detail && e.detail.contextPath || "";
         let isItemDetailPage;
         if (isEmby) {
-            isItemDetailPage = e.detail.contextPath.startsWith("/item?id=");
+            isItemDetailPage = contextPath.startsWith("/item?id=");
         } else {
-            isItemDetailPage = e.detail.params && e.detail.params.id;
+            isItemDetailPage = e.detail && e.detail.params && e.detail.params.id;
         }
-        if (isItemDetailPage) {
-            registerAdditionalPartCommand();
-            const mutation = new MutationObserver(function() {
-                if (showFlag()) {
-                    init();
-                    mutation.disconnect();
-                }
-            })
-            mutation.observe(document.body, {
-                childList: true,
-                characterData: true,
-                subtree: true,
-            })
+        if (!isItemDetailPage) {
+            stopDetailWatch();
+            return;
         }
+        registerAdditionalPartCommand();
+        const view = e.target && e.target.nodeType === 1 ? e.target : null;
+        watchDetailPage(view, contextPath);
     });
 
 })();
