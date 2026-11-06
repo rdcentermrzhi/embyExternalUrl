@@ -4,7 +4,7 @@
 // @name:zh      embyLaunchPotplayer
 // @name:zh-CN   embyLaunchPotplayer
 // @namespace    http://tampermonkey.net/
-// @version      1.1.39
+// @version      1.1.40
 // @description  emby/jellfin launch extetnal player
 // @description:zh-cn emby/jellfin 调用外部播放器
 // @description:en  emby/jellfin to external player
@@ -1032,24 +1032,84 @@
     document.addEventListener("touchend", handleCodeGesture, { capture: true, passive: false });
 
     let detailButtonTimer = null;
+    let titleObserver = null;
+    let titleWatchTimer = null;
+
+    function stopTitleWatch() {
+        if (titleObserver) {
+            titleObserver.disconnect();
+            titleObserver = null;
+        }
+        if (titleWatchTimer) {
+            clearTimeout(titleWatchTimer);
+            titleWatchTimer = null;
+        }
+    }
 
     function stopDetailWatch() {
+        stopTitleWatch();
         if (detailButtonTimer) {
             clearInterval(detailButtonTimer);
             detailButtonTimer = null;
         }
     }
 
-    function decorateDetailTitles(view) {
+    function detailTitleNodes(scope) {
+        if (!scope || !scope.querySelectorAll) {
+            return [];
+        }
+        return [...scope.querySelectorAll(codeTitleSelector)];
+    }
+
+    function applyPasteTitles(nodes) {
+        const ready = nodes.filter(el => (el.textContent || "").replace(/\s/g, ""));
+        if (!ready.length) {
+            return false;
+        }
         ensureCodeStyle();
-        const scope = view && view.querySelectorAll ? view : document;
-        scope.querySelectorAll(codeTitleSelector).forEach(decorateCodeTitle);
+        ready.forEach(decorateCodeTitle);
+        return true;
+    }
+
+    function watchPasteTitle(view) {
+        stopTitleWatch();
+        const scope = view && view.nodeType === 1 && view !== document.body ? view : document.body;
+        if (!scope) {
+            return;
+        }
+        if (applyPasteTitles(detailTitleNodes(scope))) {
+            return;
+        }
+        titleObserver = new MutationObserver(() => {
+            if (!scope.isConnected) {
+                stopTitleWatch();
+                return;
+            }
+            const nodes = detailTitleNodes(scope);
+            if (!nodes.length) {
+                return;
+            }
+            if (applyPasteTitles(nodes)) {
+                stopTitleWatch();
+                return;
+            }
+            const titleRoot = nodes[0].closest(".detailNameContainer") || nodes[0];
+            titleObserver.disconnect();
+            titleObserver = new MutationObserver(() => {
+                if (applyPasteTitles(detailTitleNodes(scope))) {
+                    stopTitleWatch();
+                }
+            });
+            titleObserver.observe(titleRoot, { childList: true, characterData: true, subtree: true });
+        });
+        titleObserver.observe(scope, { childList: true, subtree: true });
+        titleWatchTimer = setTimeout(stopTitleWatch, 20000);
     }
 
     function watchDetailPage(view, contextPath) {
         stopDetailWatch();
+        watchPasteTitle(view);
         const itemToken = contextPath || "";
-        const scope = view && view.nodeType === 1 && view !== document.body ? view : document;
         let tries = 0;
         detailButtonTimer = setInterval(() => {
             tries += 1;
@@ -1057,16 +1117,14 @@
                 stopDetailWatch();
                 return;
             }
-            const loaded = showFlag();
-            if (!loaded && tries <= 40) {
+            if (!showFlag() && tries <= 40) {
                 return;
             }
             clearInterval(detailButtonTimer);
             detailButtonTimer = null;
-            if (loaded) {
+            if (showFlag()) {
                 init();
             }
-            decorateDetailTitles(scope);
         }, 200);
     }
 
